@@ -220,6 +220,14 @@ sync:
       # Enabled defines if this option should be enabled.
       enabled: false
 
+# ResourceProxy enables proxying specific resources to the platform
+resourceProxy:
+  # Enabled defines if resource proxying should be enabled
+  enabled: false
+  
+  # Resources is a list of GVKs to intercept and proxy
+  resources: []
+
 # Configure vCluster's control plane components and deployment.
 controlPlane:
   # Distro holds virtual cluster related distro options. A distro cannot be changed after vCluster is deployed.

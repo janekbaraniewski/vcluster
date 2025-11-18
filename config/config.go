@@ -93,6 +93,9 @@ type Config struct {
 
 	// Logging provides structured logging options
 	Logging *Logging `json:"logging,omitempty"`
+
+	// ResourceProxy enables proxying specific resources to the platform
+	ResourceProxy ResourceProxy `json:"resourceProxy,omitempty"`
 }
 
 // PrivateNodes enables private nodes for vCluster. When turned on, vCluster will not sync resources to the host cluster
@@ -2397,6 +2400,28 @@ type ControlPlaneHeadlessService struct {
 
 	// Labels are extra labels for this resource.
 	Labels map[string]string `json:"labels,omitempty"`
+}
+
+type ResourceProxy struct {
+	// Enabled defines if resource proxying should be enabled
+	Enabled bool `json:"enabled,omitempty"`
+
+	// Resources is a list of GVKs to intercept and proxy
+	Resources []ResourceProxyResource `json:"resources,omitempty"`
+}
+
+type ResourceProxyResource struct {
+	// Group is the API group
+	Group string `json:"group,omitempty"`
+
+	// Version is the API version
+	Version string `json:"version,omitempty"`
+
+	// Kind is the resource kind
+	Kind string `json:"kind,omitempty"`
+
+	// Selector is a label selector for target cluster filtering
+	Selector map[string]string `json:"selector,omitempty"`
 }
 
 type ExternalEtcdPersistence struct {

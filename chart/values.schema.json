@@ -3781,6 +3781,48 @@
       "additionalProperties": false,
       "type": "object"
     },
+    "ResourceProxy": {
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enabled defines if resource proxying should be enabled"
+        },
+        "resources": {
+          "items": {
+            "$ref": "#/$defs/ResourceProxyResource"
+          },
+          "type": "array",
+          "description": "Resources is a list of GVKs to intercept and proxy"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ResourceProxyResource": {
+      "properties": {
+        "group": {
+          "type": "string",
+          "description": "Group is the API group"
+        },
+        "version": {
+          "type": "string",
+          "description": "Version is the API version"
+        },
+        "kind": {
+          "type": "string",
+          "description": "Kind is the resource kind"
+        },
+        "selector": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "description": "Selector is a label selector for target cluster filtering"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
     "ResourceQuota": {
       "properties": {
         "enabled": {
@@ -4962,6 +5004,10 @@
     "logging": {
       "$ref": "#/$defs/Logging",
       "description": "Logging provides structured logging options"
+    },
+    "resourceProxy": {
+      "$ref": "#/$defs/ResourceProxy",
+      "description": "ResourceProxy enables proxying specific resources to the platform"
     }
   },
   "additionalProperties": false,

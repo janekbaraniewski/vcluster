@@ -98,6 +98,10 @@ sync:
     volumeSnapshotClasses:
       enabled: false
 
+resourceProxy:
+  enabled: false
+  resources: []
+
 controlPlane:
   distro:
     k8s:
