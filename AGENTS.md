@@ -12,7 +12,7 @@ vCluster is an open-source tool that creates virtual Kubernetes clusters inside 
 
 - **Language**: Go 1.25 (vendored dependencies in `vendor/`)
 - **Build**: GoReleaser, Just (task runner)
-- **Kubernetes tools**: Helm v3, kubectl, Kind (for local dev clusters)
+- **Kubernetes tools**: Helm v3, kubectl, Kind/k3d/k3s (for local dev clusters), DevSpace
 - **Container**: Docker (for building images)
 - **Lint**: golangci-lint (config in `.golangci.yml`)
 - **Tests**: Go test, Helm unittest (chart tests in `chart/tests/`)
@@ -32,20 +32,78 @@ See `CONTRIBUTING.md` for full development workflow. Key commands:
 | Build syncer | `go build -mod vendor ./cmd/vcluster/...` |
 | Build CLI (goreleaser) | `just build-cli-snapshot` |
 | Build syncer image (goreleaser) | `just build-snapshot` |
+| DevSpace deploy | `devspace deploy -n vcluster` |
+| DevSpace dev (interactive) | `devspace dev -n vcluster` |
 
-### Docker-in-Docker (Cursor Cloud caveats)
+### Running a local Kubernetes cluster (Cursor Cloud)
 
-The Cursor Cloud VM runs inside a Firecracker VM with cgroup v1 and limited kernel module support. This affects Kubernetes-in-Docker:
+The Cursor Cloud VM kernel (cgroup v1, no `xt_comment` module, no overlay2) prevents standard Kind/k3d usage. Use native k3s with specific workarounds:
 
-- **Docker storage**: Must use `fuse-overlayfs` (kernel doesn't support overlay2). Daemon config at `/etc/docker/daemon.json`.
-- **ip6tables**: The kernel lacks the `ip6table_raw` module. Docker daemon must be started with `"ip6tables": false` in daemon.json to avoid `ip6tables raw table` errors.
-- **Kind**: Cannot reliably create clusters because the kubelet inside Kind nodes fails to start (containerd snapshotter / networking issues).
-- **k3d (k3s-in-Docker)**: Works if you pass `--k3s-arg "--snapshotter=native@server:0"` and `--k3s-arg "--flannel-backend=host-gw@server:0"`. Without these, k3s fails on overlayfs and flannel vxlan. Pod-to-service networking may still be unreliable.
-- **Startup sequence**: After installing Docker, start the daemon with `sudo dockerd &>/tmp/dockerd.log &`, then `sudo chmod 666 /var/run/docker.sock`.
-- **E2E tests** (`just e2e`) require a fully functional Kind/k3d cluster, which is unreliable in this environment. Focus on unit tests, chart tests, and build verification.
+**Start k3s:**
+```bash
+sudo k3s server \
+  --write-kubeconfig-mode=644 \
+  --disable=traefik \
+  --snapshotter=native \
+  --flannel-backend=host-gw \
+  --cluster-dns=10.0.0.2 \
+  > /tmp/k3s-server.log 2>&1 &
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+```
+
+**Fix networking (required after k3s start):**
+The kernel lacks `xt_comment` so kube-proxy cannot create service routing rules. Fix manually:
+```bash
+# Allow pod traffic forwarding
+sudo iptables -P FORWARD ACCEPT
+sudo iptables -A FORWARD -s 10.42.0.0/16 -j ACCEPT
+sudo iptables -A FORWARD -d 10.42.0.0/16 -j ACCEPT
+
+# DNAT for Kubernetes API service IP
+NODE_IP=$(kubectl get node -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+sudo iptables -t nat -A OUTPUT -d 10.43.0.1/32 -p tcp --dport 443 -j DNAT --to-destination ${NODE_IP}:6443
+sudo iptables -t nat -A PREROUTING -d 10.43.0.1/32 -p tcp --dport 443 -j DNAT --to-destination ${NODE_IP}:6443
+```
+
+**Deploy vCluster locally:**
+```bash
+# Build and import image
+go build -mod vendor -o vcluster ./cmd/vcluster/...
+docker build -t vcluster:dev-local -f Dockerfile.release --build-arg TARGETARCH=amd64 --build-arg TARGETOS=linux .
+rm ./vcluster
+sudo k3s ctr images import - < <(docker save vcluster:dev-local)
+
+# Create values file
+cat > /tmp/vcluster-values.yaml << 'EOF'
+controlPlane:
+  statefulSet:
+    imagePullPolicy: IfNotPresent
+    image:
+      registry: ""
+      repository: vcluster
+      tag: dev-local
+EOF
+
+# Deploy
+./dist/vcluster-cli create my-vcluster -n my-vcluster --create-namespace --connect=false --local-chart-dir ./chart/ -f /tmp/vcluster-values.yaml
+```
+
+### Docker setup (Cursor Cloud)
+
+Docker requires `fuse-overlayfs` storage driver and `ip6tables: false`:
+```bash
+sudo mkdir -p /etc/docker
+printf '{\n  "storage-driver": "fuse-overlayfs",\n  "ip6tables": false\n}\n' | sudo tee /etc/docker/daemon.json
+sudo dockerd > /tmp/dockerd.log 2>&1 &
+sudo chmod 666 /var/run/docker.sock
+```
 
 ### Go build notes
 
 - Dependencies are vendored — always use `-mod vendor` flag.
-- First build takes ~3 minutes; subsequent builds are cached and much faster.
+- First build takes ~3 minutes; subsequent builds use cache.
 - GoReleaser snapshot builds skip chart embedding and asset generation hooks.
+
+### Linear integration
+
+The repo has `hack/linear-sync/` — a CI tool that syncs GitHub PR data to Linear issues at release time. It requires `LINEAR_TOKEN` and `GITHUB_TOKEN` environment variables. It is not a general-purpose Linear client.
