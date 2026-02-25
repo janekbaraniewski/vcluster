@@ -19,6 +19,7 @@ import (
 	cmdtelemetry "github.com/loft-sh/vcluster/cmd/vclusterctl/cmd/telemetry"
 	"github.com/loft-sh/vcluster/cmd/vclusterctl/cmd/token"
 	"github.com/loft-sh/vcluster/cmd/vclusterctl/cmd/use"
+	"github.com/loft-sh/vcluster/pkg/cli/banner"
 	"github.com/loft-sh/vcluster/pkg/cli/completion"
 	"github.com/loft-sh/vcluster/pkg/cli/config"
 	"github.com/loft-sh/vcluster/pkg/cli/flags"
@@ -63,6 +64,10 @@ func NewRootCmd(log log.Logger) *cobra.Command {
 			}
 
 			return nil
+		},
+		Run: func(cmd *cobra.Command, _ []string) {
+			banner.PrintWithVersion(cmd.OutOrStdout(), upgrade.GetVersion())
+			_ = cmd.Help()
 		},
 		Long: `vcluster root command`,
 	}
