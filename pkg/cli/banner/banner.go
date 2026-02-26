@@ -2,7 +2,10 @@ package banner
 
 import (
 	"fmt"
-	"io"
+
+	"github.com/loft-sh/log"
+	"github.com/mgutz/ansi"
+	"github.com/sirupsen/logrus"
 )
 
 const asciiArt = `
@@ -13,11 +16,9 @@ const asciiArt = `
 |___/\___/_/\__,_/____/\__/\___/_/     
 `
 
-func Print(w io.Writer) {
-	fmt.Fprint(w, asciiArt)
-}
-
-func PrintWithVersion(w io.Writer, version string) {
-	fmt.Fprint(w, asciiArt)
-	fmt.Fprintf(w, "                                %s\n", version)
+func PrintSuccessMessageVClusterConnect(vClusterName, kubeConfigPath string, logger log.Logger) {
+	logger.WriteString(logrus.InfoLevel, ansi.Color(asciiArt, "green+b"))
+	logger.WriteString(logrus.InfoLevel, fmt.Sprintf("\n  Virtual Cluster %s is running and was set up as the default context\n", ansi.Color(vClusterName, "white+b")))
+	logger.WriteString(logrus.InfoLevel, fmt.Sprintf("  in your kubeconfig (%s)\n\n", kubeConfigPath))
+	logger.WriteString(logrus.InfoLevel, "  To get started:\n")
 }

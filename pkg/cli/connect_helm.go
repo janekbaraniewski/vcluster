@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/loft-sh/log"
+	"github.com/loft-sh/vcluster/pkg/cli/banner"
 	"github.com/loft-sh/vcluster/pkg/cli/find"
 	"github.com/loft-sh/vcluster/pkg/cli/flags"
 	"github.com/loft-sh/vcluster/pkg/cli/localkubernetes"
@@ -190,6 +191,8 @@ func writeKubeConfig(kubeConfig *clientcmdapi.Config, vClusterName string, optio
 		}
 
 		log.Donef("Switched active kube context to %s", options.KubeConfigContextName)
+
+		banner.PrintSuccessMessageVClusterConnect(vClusterName, "~/.kube/config", log)
 		if !options.BackgroundProxy && portForwarding {
 			log.Warnf("Since you are using port-forwarding to connect, you will need to leave this terminal open")
 			c := make(chan os.Signal, 1)
@@ -211,11 +214,11 @@ func writeKubeConfig(kubeConfig *clientcmdapi.Config, vClusterName string, optio
 			defer func() {
 				signal.Stop(c)
 			}()
-			log.WriteString(logrus.InfoLevel, "- Use CTRL+C to return to your previous kube context\n")
-			log.WriteString(logrus.InfoLevel, "- Use `kubectl get namespaces` in another terminal to access the vcluster\n")
+			log.WriteString(logrus.InfoLevel, "  - Use CTRL+C to return to your previous kube context\n")
+			log.WriteString(logrus.InfoLevel, "  - Use `kubectl get namespaces` in another terminal to access the vcluster\n")
 		} else {
-			log.WriteString(logrus.InfoLevel, "- Use `vcluster disconnect` to return to your previous kube context\n")
-			log.WriteString(logrus.InfoLevel, "- Use `kubectl get namespaces` to access the vcluster\n")
+			log.WriteString(logrus.InfoLevel, "  - Use `kubectl` (or any other client) to access the Virtual Cluster\n")
+			log.WriteString(logrus.InfoLevel, "  - Use `vcluster disconnect` to return to your previous Kubernetes context\n")
 		}
 	} else {
 		err = os.WriteFile(options.KubeConfig, out, 0666)
@@ -224,10 +227,11 @@ func writeKubeConfig(kubeConfig *clientcmdapi.Config, vClusterName string, optio
 		}
 
 		log.Donef("Virtual cluster kube config written to: %s", options.KubeConfig)
+		banner.PrintSuccessMessageVClusterConnect(vClusterName, options.KubeConfig, log)
 		if options.Server == "" {
-			log.WriteString(logrus.InfoLevel, fmt.Sprintf("- Use `vcluster connect %s -n %s -- kubectl get ns` to execute a command directly within this terminal\n", vClusterName, globalFlags.Namespace))
+			log.WriteString(logrus.InfoLevel, fmt.Sprintf("  - Use `vcluster connect %s -n %s -- kubectl get ns` to execute a command directly within this terminal\n", vClusterName, globalFlags.Namespace))
 		}
-		log.WriteString(logrus.InfoLevel, fmt.Sprintf("- Use `kubectl --kubeconfig %s get namespaces` to access the vcluster\n", options.KubeConfig))
+		log.WriteString(logrus.InfoLevel, fmt.Sprintf("  - Use `kubectl --kubeconfig %s get namespaces` to access the vcluster\n", options.KubeConfig))
 	}
 
 	return nil
