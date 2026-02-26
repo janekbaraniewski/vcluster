@@ -24,7 +24,6 @@ import (
 	"github.com/loft-sh/vcluster/pkg/util/portforward"
 	"github.com/loft-sh/vcluster/pkg/util/serviceaccount"
 	"github.com/samber/lo"
-	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -214,11 +213,6 @@ func writeKubeConfig(kubeConfig *clientcmdapi.Config, vClusterName string, optio
 			defer func() {
 				signal.Stop(c)
 			}()
-			log.WriteString(logrus.InfoLevel, "  - Use CTRL+C to return to your previous kube context\n")
-			log.WriteString(logrus.InfoLevel, "  - Use `kubectl get namespaces` in another terminal to access the vcluster\n")
-		} else {
-			log.WriteString(logrus.InfoLevel, "  - Use `kubectl` (or any other client) to access the Virtual Cluster\n")
-			log.WriteString(logrus.InfoLevel, "  - Use `vcluster disconnect` to return to your previous Kubernetes context\n")
 		}
 	} else {
 		err = os.WriteFile(options.KubeConfig, out, 0666)
@@ -228,10 +222,6 @@ func writeKubeConfig(kubeConfig *clientcmdapi.Config, vClusterName string, optio
 
 		log.Donef("Virtual cluster kube config written to: %s", options.KubeConfig)
 		banner.PrintSuccessMessageVClusterConnect(vClusterName, options.KubeConfig, log)
-		if options.Server == "" {
-			log.WriteString(logrus.InfoLevel, fmt.Sprintf("  - Use `vcluster connect %s -n %s -- kubectl get ns` to execute a command directly within this terminal\n", vClusterName, globalFlags.Namespace))
-		}
-		log.WriteString(logrus.InfoLevel, fmt.Sprintf("  - Use `kubectl --kubeconfig %s get namespaces` to access the vcluster\n", options.KubeConfig))
 	}
 
 	return nil
