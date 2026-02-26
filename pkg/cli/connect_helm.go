@@ -211,11 +211,9 @@ func writeKubeConfig(kubeConfig *clientcmdapi.Config, vClusterName string, optio
 			defer func() {
 				signal.Stop(c)
 			}()
-			log.WriteString(logrus.InfoLevel, "- Use CTRL+C to return to your previous kube context\n")
-			log.WriteString(logrus.InfoLevel, "- Use `kubectl get namespaces` in another terminal to access the vcluster\n")
+			clihelper.PrintConnectSuccessBannerPortForwarding(vClusterName, options.KubeConfigContextName, log)
 		} else {
-			log.WriteString(logrus.InfoLevel, "- Use `vcluster disconnect` to return to your previous kube context\n")
-			log.WriteString(logrus.InfoLevel, "- Use `kubectl get namespaces` to access the vcluster\n")
+			clihelper.PrintConnectSuccessBanner(vClusterName, options.KubeConfigContextName, log)
 		}
 	} else {
 		err = os.WriteFile(options.KubeConfig, out, 0666)
