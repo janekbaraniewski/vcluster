@@ -13,7 +13,6 @@ import (
 	"github.com/loft-sh/vcluster/pkg/server/handler"
 	"github.com/loft-sh/vcluster/pkg/syncer/synccontext"
 	"github.com/loft-sh/vcluster/pkg/util/osutil"
-	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -32,17 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
-)
-
-const (
-	// protectionLabelKey marks resources that the proxy backend protection
-	// validating admission policy is allowed to defend against deletion.
-	protectionLabelKey   = "vcluster.loft.sh/protected"
-	protectionLabelValue = "resource-proxy-backend"
-
-	// protectionPolicyName is the cluster-scoped validating admission policy that
-	// denies DELETE on any resource carrying protectionLabelKey.
-	protectionPolicyName = "vcluster-resource-proxy"
 )
 
 func checkExistingAPIService(ctx context.Context, client client.Client, groupVersion schema.GroupVersion) bool {
@@ -75,6 +63,11 @@ func applyOperation(ctx context.Context, operationFunc wait.ConditionWithContext
 
 func deleteOperation(ctrlCtx *synccontext.ControllerContext, groupVersion schema.GroupVersion) wait.ConditionWithContextFunc {
 	return func(ctx context.Context) (bool, error) {
+		if err := disableDeletionProtection(ctx, ctrlCtx.VirtualManager.GetClient(), groupVersion); err != nil {
+			klog.Errorf("error disabling deletion protection for api service %v", err)
+			return false, nil
+		}
+
 		err := ctrlCtx.VirtualManager.GetClient().Delete(ctx, &apiregistrationv1.APIService{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: groupVersion.Version + "." + groupVersion.Group,
@@ -93,7 +86,7 @@ func deleteOperation(ctrlCtx *synccontext.ControllerContext, groupVersion schema
 	}
 }
 
-func createOperation(ctrlCtx *synccontext.ControllerContext, serviceName string, hostPort int, groupVersion schema.GroupVersion) wait.ConditionWithContextFunc {
+func createOperation(ctrlCtx *synccontext.ControllerContext, serviceName string, hostPort int, groupVersion schema.GroupVersion, additionalLabels map[string]string) wait.ConditionWithContextFunc {
 	return func(ctx context.Context) (bool, error) {
 		service := &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{
@@ -102,7 +95,9 @@ func createOperation(ctrlCtx *synccontext.ControllerContext, serviceName string,
 			},
 		}
 		_, err := controllerutil.CreateOrUpdate(ctx, ctrlCtx.VirtualManager.GetClient(), service, func() error {
-			metav1.SetMetaDataLabel(&service.ObjectMeta, protectionLabelKey, protectionLabelValue)
+			for k, v := range additionalLabels {
+				metav1.SetMetaDataLabel(&service.ObjectMeta, k, v)
+			}
 			service.Spec.Type = corev1.ServiceTypeExternalName
 			service.Spec.ExternalName = "localhost"
 			service.Spec.Ports = []corev1.ServicePort{
@@ -139,7 +134,9 @@ func createOperation(ctrlCtx *synccontext.ControllerContext, serviceName string,
 			},
 		}
 		_, err = controllerutil.CreateOrUpdate(ctx, ctrlCtx.VirtualManager.GetClient(), apiService, func() error {
-			metav1.SetMetaDataLabel(&apiService.ObjectMeta, protectionLabelKey, protectionLabelValue)
+			for k, v := range additionalLabels {
+				metav1.SetMetaDataLabel(&apiService.ObjectMeta, k, v)
+			}
 			apiService.Spec = apiServiceSpec
 			return nil
 		})
@@ -154,91 +151,6 @@ func createOperation(ctrlCtx *synccontext.ControllerContext, serviceName string,
 
 		return true, nil
 	}
-}
-
-// EnsureProtectionPolicy installs (or refreshes) the cluster-scoped
-// ValidatingAdmissionPolicy + Binding that denies DELETE on any Service or
-// APIService labelled with protectionLabelKey=protectionLabelValue. Idempotent
-// — callers should invoke it once before registering proxy APIServices
-// (ENGNODE-377).
-//
-// The policy and binding cannot be self-protected against deletion: Kubernetes
-// exempts ValidatingAdmissionPolicy and ValidatingAdmissionPolicyBinding from
-// VAP evaluation as an anti-lockout safeguard. If they are deleted, vCluster
-// recreates them on the next leader-acquired hook.
-func EnsureProtectionPolicy(ctx context.Context, c client.Client) error {
-	objectSelector := &metav1.LabelSelector{
-		MatchLabels: map[string]string{
-			protectionLabelKey: protectionLabelValue,
-		},
-	}
-
-	policy := &admissionregistrationv1.ValidatingAdmissionPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: protectionPolicyName,
-		},
-	}
-	if _, err := controllerutil.CreateOrUpdate(ctx, c, policy, func() error {
-		metav1.SetMetaDataLabel(&policy.ObjectMeta, protectionLabelKey, protectionLabelValue)
-
-		policy.Spec.FailurePolicy = ptr.To(admissionregistrationv1.Fail)
-		policy.Spec.MatchConstraints = &admissionregistrationv1.MatchResources{
-			ObjectSelector: objectSelector,
-			ResourceRules: []admissionregistrationv1.NamedRuleWithOperations{
-				{
-					RuleWithOperations: admissionregistrationv1.RuleWithOperations{
-						Operations: []admissionregistrationv1.OperationType{admissionregistrationv1.Delete},
-						Rule: admissionregistrationv1.Rule{
-							APIGroups:   []string{""},
-							APIVersions: []string{"v1"},
-							Resources:   []string{"services"},
-						},
-					},
-				},
-				{
-					RuleWithOperations: admissionregistrationv1.RuleWithOperations{
-						Operations: []admissionregistrationv1.OperationType{admissionregistrationv1.Delete},
-						Rule: admissionregistrationv1.Rule{
-							APIGroups:   []string{"apiregistration.k8s.io"},
-							APIVersions: []string{"v1"},
-							Resources:   []string{"apiservices"},
-						},
-					},
-				},
-			},
-		}
-		policy.Spec.Validations = []admissionregistrationv1.Validation{
-			{
-				Expression: `false`,
-				Message:    "deletion of vCluster proxy backend resources is denied; remove proxy configuration from your configuration",
-			},
-		}
-		return nil
-	}); err != nil {
-		return fmt.Errorf("create or update %s: %w", protectionPolicyName, err)
-	}
-
-	binding := &admissionregistrationv1.ValidatingAdmissionPolicyBinding{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: protectionPolicyName,
-		},
-	}
-	if _, err := controllerutil.CreateOrUpdate(ctx, c, binding, func() error {
-		metav1.SetMetaDataLabel(&binding.ObjectMeta, protectionLabelKey, protectionLabelValue)
-
-		binding.Spec.PolicyName = protectionPolicyName
-		binding.Spec.ValidationActions = []admissionregistrationv1.ValidationAction{
-			admissionregistrationv1.Deny,
-		}
-		binding.Spec.MatchResources = &admissionregistrationv1.MatchResources{
-			ObjectSelector: objectSelector,
-		}
-		return nil
-	}); err != nil {
-		return fmt.Errorf("create or update %s: %w", protectionPolicyName, err)
-	}
-
-	return nil
 }
 
 func StartAPIServer(ctx *synccontext.ControllerContext, port int, h http.Handler) (*http.Server, error) {
@@ -360,8 +272,16 @@ func isAPIServiceProxyPathAllowed(method, path string) bool {
 	return false
 }
 
-func RegisterAPIService(ctx *synccontext.ControllerContext, serviceName string, hostPort int, groupVersion schema.GroupVersion) error {
-	return applyOperation(ctx, createOperation(ctx, serviceName, hostPort, groupVersion))
+func RegisterAPIService(ctx *synccontext.ControllerContext, serviceName string, hostPort int, groupVersion schema.GroupVersion, protectionTag string) error {
+	var additionalLabels map[string]string
+	if protectionTag != "" {
+		labels, err := enableDeletionProtection(ctx, ctx.VirtualManager.GetClient(), protectionTag)
+		if err != nil {
+			return err
+		}
+		additionalLabels = labels
+	}
+	return applyOperation(ctx, createOperation(ctx, serviceName, hostPort, groupVersion, additionalLabels))
 }
 
 func DeregisterAPIService(ctx *synccontext.ControllerContext, groupVersion schema.GroupVersion) error {
