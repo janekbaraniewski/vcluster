@@ -9,8 +9,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -23,7 +23,7 @@ const (
 	protectionLabelKey = "vcluster.loft.sh/protected"
 
 	// protectionPolicyName is the name of the shared generic policy. Bindings
-	// per feature reference it; the policy itself is feature-agnostic.
+	// per feature reference it.
 	protectionPolicyName = "vcluster-protected-apiservices"
 
 	protectionBindingNamePrefix = "vcluster-protected-"
@@ -31,12 +31,7 @@ const (
 
 // enableDeletionProtection installs the shared protection policy and a
 // per-feature binding scoped to tag, then returns the labels the caller must
-// stamp onto each resource to bring it under that protection. Idempotent.
-//
-// Kubernetes exempts ValidatingAdmissionPolicy and ValidatingAdmissionPolicyBinding
-// from VAP evaluation as an anti-lockout safeguard, so the policy and its
-// bindings cannot be self-protected. If they are deleted, vCluster recreates
-// them on the next leader-acquired hook.
+// stamp onto each resource to bring it under that protection.
 func enableDeletionProtection(ctx context.Context, c client.Client, tag string) (map[string]string, error) {
 	if err := ensureProtectionPolicy(ctx, c); err != nil {
 		return nil, fmt.Errorf("ensure protection policy: %w", err)
@@ -49,11 +44,7 @@ func enableDeletionProtection(ctx context.Context, c client.Client, tag string) 
 
 // disableDeletionProtection removes the protection label from the APIService
 // for the given group/version and from its backend Service so the protection
-// policy stops blocking deletes. Idempotent and NotFound-safe.
-//
-// The per-feature binding is left in place — it is shared across a feature's
-// APIServices (resource-proxy registers many) and is harmless when no labelled
-// resources match.
+// policy stops blocking deletes.
 func disableDeletionProtection(ctx context.Context, c client.Client, groupVersion schema.GroupVersion) error {
 	apiService := &apiregistrationv1.APIService{}
 	if err := c.Get(ctx, types.NamespacedName{Name: groupVersion.Version + "." + groupVersion.Group}, apiService); err != nil {
